@@ -1,2 +1,2 @@
 # MAFEA
-Free Energy Analysis for Multi-Agent Netwoeks
+Free Energy Analysis for Multi-Agent Networks
