@@ -1,69 +1,75 @@
-from agents.llm_agent import LLMAgent
-from agents.local_agent import LocalModelAgent
-from networks.network import SubNetwork
-from networks.network import MultiAgentNetwork
-from data.generator import generate_data
-from utils.free_energy import calculate_free_energy
-from config import CONFIG
-import numpy as np
+# main.py
 
-def create_agent(agent_type, agent_id, learning_capacity):
-    if agent_type == "llm":
-        return LLMAgent(agent_id, learning_capacity, CONFIG["openai_api_key"])
-    elif agent_type == "local":
-        # 假设我们有一个本地模型
-        local_model = None  # 这里应该初始化一个实际的本地模型
-        return LocalModelAgent(agent_id, learning_capacity, local_model)
-
-def create_network(num_sub_networks, agents_per_sub_network, agent_heterogeneity, sub_network_heterogeneity, data_distribution_correlation):
-    sub_networks = []
-    for i in range(num_sub_networks):
-        agents = []
-        for j in range(agents_per_sub_network):
-            agent_type = "llm" if j % 2 == 0 else "local"
-            learning_capacity = np.random.uniform(0.5, 1.0)  # 随机学习能力
-            agent = create_agent(agent_type, f"agent_{i}_{j}", learning_capacity)
-            
-            # 应用智能体异质性
-            agent.update_parameters({"heterogeneity": np.random.normal(0, agent_heterogeneity)})
-            agents.append(agent)
-        
-        # 应用子网络异质性和数据分布相关性
-        data_distribution = generate_data("normal" if i % 2 == 0 else "uniform", CONFIG["data_size"])
-        sub_network = SubNetwork(agents, data_distribution)
-        sub_network.heterogeneity = np.random.normal(0, sub_network_heterogeneity)
-        sub_networks.append(sub_network)
-    
-    return MultiAgentNetwork(sub_networks)
-
-def run_experiment(agent_heterogeneity, sub_network_heterogeneity, data_distribution_correlation, network_scale, learning_capacity):
-    network = create_network(
-        num_sub_networks=network_scale,
-        agents_per_sub_network=CONFIG["agents_per_sub_network"],
-        agent_heterogeneity=agent_heterogeneity,
-        sub_network_heterogeneity=sub_network_heterogeneity,
-        data_distribution_correlation=data_distribution_correlation
-    )
-    
-    input_data = generate_data("normal", CONFIG["data_size"])
-    network_output = network.process(input_data)
-    
-    # 假设我们有一个期望输出
-    expected_output = generate_data("normal", len(network_output))
-    
-    free_energy = calculate_free_energy(network_output, expected_output)
-    return free_energy
+from network import Network
+from debate import run_debates
+import config
+from dataset_loader import load_gsm8k_dataset
+from llm import llm_request
 
 def main():
-    # 示例：运行一次实验
-    free_energy = run_experiment(
-        agent_heterogeneity=0.1,
-        sub_network_heterogeneity=0.2,
-        data_distribution_correlation=0.5,
-        network_scale=CONFIG["num_sub_networks"],
-        learning_capacity=0.8
+    max_rounds = config.MAX_DEBATE_ROUNDS
+
+    # Load the GSM8K dataset
+    dataset_path = 'path/to/your/gsm8k/train.jsonl'  # Update with your dataset path
+    PROBLEM_SET = load_gsm8k_dataset(dataset_path, num_problems=10)  # Load 10 problems for testing
+
+    # Initialize a dictionary to hold correctness data for each graph
+    graph_correctness = {}
+
+    # Iterate over each graph configuration
+    for graph_name, graph_config in config.GRAPH_CONFIGS.items():
+        print(f"\nRunning simulation for graph: {graph_name}")
+
+        # Initialize the network for the current graph
+        network = Network(graph_config)
+
+        # Initialize correctness tracking
+        agent_correctness = {agent_id: [] for agent_id in network.agents}
+
+        # Iterate over each problem in the problem set
+        for problem_data in PROBLEM_SET:
+            problem = problem_data['problem']
+            correct_answer = problem_data['answer']
+
+            # Each agent solves the problem initially
+            for agent in network.agents.values():
+                agent.solve(problem)
+                agent.active = True  # Reset active status for each problem
+                agent.agreements = {}  # Reset agreements for each problem
+
+            # Run the debates among agents
+            run_debates(network, problem, max_rounds)
+
+            # Check correctness of each agent's final answer
+            for agent_id, agent in network.agents.items():
+                is_correct = assess_correctness(agent.answer, correct_answer)
+                agent_correctness[agent_id].append(is_correct)
+
+        # Calculate and display the percentage correctness for each agent in the current graph
+        total_agents = len(agent_correctness)
+        total_problems = len(PROBLEM_SET)
+        total_correct = sum([sum(results) for results in agent_correctness.values()])
+        percentage_correct = (total_correct / (total_agents * total_problems)) * 100
+
+        print(f"Graph '{graph_name}' overall correctness: {total_correct}/{total_agents * total_problems} ({percentage_correct:.2f}%)")
+
+        # Store the correctness percentage for the graph
+        graph_correctness[graph_name] = percentage_correct
+
+    # After all graphs are processed, display a summary
+    print("\nSummary of correctness percentages for each graph:")
+    for graph_name, percentage in graph_correctness.items():
+        print(f"- {graph_name}: {percentage:.2f}%")
+
+def assess_correctness(agent_answer, correct_answer):
+    # Use llm_request to assess the correctness
+    assessment_prompt = (
+        f"Agent's answer:\n{agent_answer}\n\n"
+        f"Correct answer:\n{correct_answer}\n\n"
+        f"Does the agent's answer correctly solve the problem? Answer 'Yes' or 'No'."
     )
-    print(f"Calculated Free Energy: {free_energy}")
+    assessment = llm_request("", assessment_prompt, type='completion')
+    return "Yes" in assessment
 
 if __name__ == "__main__":
     main()
