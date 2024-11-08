@@ -5,6 +5,13 @@ from debate import run_debates
 import config
 from dataset_loader import load_gsm8k_dataset
 from agent import assess_correctness
+import logging
+
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s [%(levelname)s] %(message)s',
+                    filename='agent_log.log',
+                    filemode='w')
+
 
 def main():
     max_rounds_per_pair = config.MAX_DEBATE_ROUNDS_PER_PAIR
@@ -18,7 +25,7 @@ def main():
 
     # Iterate over each graph configuration
     for graph_name, graph_config in config.GRAPH_CONFIGS.items():
-        print(f"\nRunning simulation for graph: {graph_name}")
+        logging.info(f"\n########## Running simulation on graph: {graph_name} ##########")
 
         # Initialize the network for the current graph
         network = Network(graph_config)
@@ -29,6 +36,7 @@ def main():
         # Iterate over each problem in the problem set
         for problem_data in PROBLEM_SET:
             network.reset()
+            logging.info(f"\n========== Problem {problem_data['id']} on graph \"{graph_name}\" ==========\n{problem_data['problem']}\n========================================")
             problem = problem_data['problem']
             correct_answer = problem_data['answer']
 
@@ -53,15 +61,15 @@ def main():
         total_correct = sum([sum(results) for results in agent_correctness.values()])
         percentage_correct = (total_correct / (total_agents * total_problems)) * 100
 
-        print(f"Graph '{graph_name}' overall correctness: {total_correct}/{total_agents * total_problems} ({percentage_correct:.2f}%)")
+        logging.info(f"Graph '{graph_name}' overall correctness: {total_correct}/{total_agents * total_problems} ({percentage_correct:.2f}%)")
 
         # Store the correctness percentage for the graph
         graph_correctness[graph_name] = percentage_correct
 
     # After all graphs are processed, display a summary
-    print("\nSummary of correctness percentages for each graph:")
+    logging.info("\nSummary of correctness percentages for each graph:")
     for graph_name, percentage in graph_correctness.items():
-        print(f"- {graph_name}: {percentage:.2f}%")
+        logging.info(f"- {graph_name}: {percentage:.2f}%")
 
 if __name__ == "__main__":
         main()

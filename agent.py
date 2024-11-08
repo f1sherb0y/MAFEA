@@ -7,10 +7,6 @@ from llm import get_llm
 from typing import Optional, Dict, List, Set
 from langchain_core.output_parsers import StrOutputParser
 
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s [%(levelname)s] %(message)s',
-                    filename='agent_log.log',
-                    filemode='w')
 
 class Network:
     def __init__(self):
@@ -249,12 +245,12 @@ Instructions:
 1. Compare mathematical equivalence only (e.g., 0.5 = 1/2 = 50% are equivalent)
 2. Assess if a new solution is mathematically different from current
 3. Return a JSON object with exactly these fields:
-   {
+   {{
        "solution_changed": boolean,  // true only if mathematically different
        "new_solution": "numerical answer only",
        "confidence": integer 0-100,
        "reasoning": "one-line mathematical explanation"
-   }
+   }}
 
 Requirements for the response:
 - No text outside the JSON object
