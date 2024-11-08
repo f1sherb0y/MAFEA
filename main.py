@@ -11,7 +11,7 @@ def main():
 
     # Load the GSM8K dataset
     dataset_path = 'dataset/gsm8k/train.jsonl'  # Update with your dataset path
-    PROBLEM_SET = load_gsm8k_dataset(dataset_path, num_problems=10)  # Load 10 problems for testing
+    PROBLEM_SET = load_gsm8k_dataset(dataset_path, num_problems=1)  # Load 10 problems for testing
 
     # Initialize a dictionary to hold correctness data for each graph
     graph_correctness = {}
@@ -28,6 +28,7 @@ def main():
 
         # Iterate over each problem in the problem set
         for problem_data in PROBLEM_SET:
+            network.reset()
             problem = problem_data['problem']
             correct_answer = problem_data['answer']
 

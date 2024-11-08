@@ -5,7 +5,6 @@ from langchain_core.prompts import PromptTemplate
 from langchain.memory import ConversationBufferMemory
 from llm import get_llm
 from typing import Optional
-from network import Network
 from langchain_core.output_parsers import StrOutputParser
 
 logging.basicConfig(level=logging.INFO,
@@ -114,7 +113,7 @@ Provide a clear, step-by-step solution with a final numerical answer.
             solutions_match = self._compare_solutions(self.answer, other_agent.answer)
 
             if solutions_match:
-                logging.info(f"Consensus reached after {rounds + 1} rounds.")
+                logging.info(f"Agent {self.agent_id},{other_agent.agent_id} agree after {rounds + 1} rounds.")
                 # Update the agreement status
                 network.update_agreement(self.agent_id, other_agent.agent_id, True)
                 return True
@@ -251,7 +250,7 @@ Analyze the mathematical correctness and provide specific feedback.
     to the current one (e.g., 0.5 is mathematically equivalent to 1/2 and 50%, so would 
     NOT count as changed).
 
-    Return your analysis in this JSON format:
+    YOU MUST ONLY Return your analysis in this JSON format, without anything else:
     {{
         "solution_changed": true/false,  # true only if new solution is mathematically different from current
         "new_solution": "your numerical answer here if mathematically different, otherwise same as current",
@@ -263,61 +262,58 @@ Analyze the mathematical correctness and provide specific feedback.
 
         evaluation_chain = evaluation_prompt | get_llm(self.capability) | StrOutputParser()
 
-        try:
-            evaluation_result = evaluation_chain.invoke({
-                "problem": problem,
-                "current_answer": self.answer,
-                "history": conversation_history,
-                "capability": self.capability
-            })
+        evaluation_result = evaluation_chain.invoke({
+            "problem": problem,
+            "current_answer": self.answer,
+            "history": conversation_history,
+            "capability": self.capability
+        })
+
+        logging.info(f"Agent {self.agent_id} evaluation response: {evaluation_result}")
+        
+        evaluation_data = json.loads(evaluation_result)
+        solution_changed = evaluation_data.get("solution_changed", False)
+        new_solution = evaluation_data.get("new_solution", self.answer)
+        
+        if solution_changed:
+            # Update agent's solution and state
+            self.answer = new_solution
+            self.confidence = float(evaluation_data.get("confidence", 0))
+            self.reasoning = evaluation_data.get("reasoning", "")
             
-            evaluation_data = json.loads(evaluation_result)
-            solution_changed = evaluation_data.get("solution_changed", False)
-            new_solution = evaluation_data.get("new_solution", self.answer)
+            logging.info(f"Solution updated - Agent {self.agent_id}: {self.answer}")
+            logging.info(f"Update confidence: {self.confidence}")
+            logging.info(f"Update reasoning: {self.reasoning}")
             
-            if solution_changed:
-                # Update agent's solution and state
-                self.answer = new_solution
-                self.confidence = float(evaluation_data.get("confidence", 0))
-                self.reasoning = evaluation_data.get("reasoning", "")
-                
-                logging.info(f"Solution updated - Agent {self.agent_id}: {self.answer}")
-                logging.info(f"Update confidence: {self.confidence}")
-                logging.info(f"Update reasoning: {self.reasoning}")
-                
-                # Update network agreements
-                if(evaluation_data.get("solution_changed"), False):
-                    network.update_agreement(self.agent_id, proposer.agent_id, True)
-                    neighbors = network.get_neighbors(self.agent_id)
-                    for neighbor_id in neighbors:
-                        if neighbor_id != proposer.agent_id:
-                            network.update_agreement(self.agent_id, neighbor_id, False)
-            else:
-                logging.info(f"Solution not updated - Agent {self.agent_id}")
-                self.reasoning = evaluation_data.get("reasoning", "")
-                logging.info(f"Reasoning: {self.reasoning}")
+            # Update network agreements
+            if(evaluation_data.get("solution_changed"), False):
+                network.update_agreement(self.agent_id, proposer.agent_id, True)
+                neighbors = network.get_neighbors(self.agent_id)
+                for neighbor_id in neighbors:
+                    if neighbor_id != proposer.agent_id:
+                        network.update_agreement(self.agent_id, neighbor_id, False)
+        else:
+            logging.info(f"Solution not updated - Agent {self.agent_id}")
+            self.reasoning = evaluation_data.get("reasoning", "")
+            logging.info(f"Reasoning: {self.reasoning}")
 
-        except json.JSONDecodeError as e:
-            logging.error(f"Failed to parse JSON response: {e}")
-        except ValueError as ve:
-            logging.error(f"Value error in update_solution: {ve}")
-        def _compare_solutions(self, solution1: str, solution2: str) -> bool:
-            """Compares solutions to check for equivalence."""
-            compare_prompt = PromptTemplate(
-                input_variables=["sol1", "sol2"],
-                template="Compare these solutions mathematically:\nSol1: {sol1}\nSol2: {sol2}\nAre they equivalent? Answer only 'Yes' or 'No'."
-            )
+    def _compare_solutions(self, solution1: str, solution2: str) -> bool:
+        """Compares solutions to check for equivalence."""
+        compare_prompt = PromptTemplate(
+            input_variables=["sol1", "sol2"],
+            template="Compare these solutions mathematically:\nSol1: {sol1}\nSol2: {sol2}\nAre they equivalent? Answer only 'Yes' or 'No'."
+        )
 
-            compare_chain = LLMChain(
-                llm=get_llm(self.capability),
-                prompt=compare_prompt
-            )
+        compare_chain = LLMChain(
+            llm=get_llm(self.capability),
+            prompt=compare_prompt
+        )
 
-            result = compare_chain.invoke({
-                "sol1": solution1,
-                "sol2": solution2
-            })
-            return "yes" in result["text"].lower()
+        result = compare_chain.invoke({
+            "sol1": solution1,
+            "sol2": solution2
+        })
+        return "yes" in result["text"].lower()
 
 def assess_correctness(agent: Agent, correct_answer: str) -> bool:
     """Assesses correctness of the agent's solution."""
@@ -331,10 +327,10 @@ Answer only 'Yes' or 'No'.
 """
     )
 
-    assess_chain = assess_prompt | get_llm(agent.capability)
+    assess_chain = assess_prompt | get_llm(agent.capability) | StrOutputParser()
 
     result = assess_chain.invoke({
         "agent_answer": agent.answer,
         "correct_answer": correct_answer
     })
-    return "yes" in result["text"].lower()
+    return "yes" in result.lower()

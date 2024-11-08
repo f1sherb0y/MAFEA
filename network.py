@@ -4,7 +4,7 @@ from typing import Dict, Tuple
 
 class Network:
     def __init__(self, config):
-        self.graph = nx.Graph() 
+        self.graph = nx.Graph()
         self.agents: Dict[str, Agent] = {}
         self.agreement_status: Dict[Tuple[str, str], bool] = {}
         self.init_agents(config['nodes'])
@@ -28,6 +28,20 @@ class Network:
             for neighbor_id in self.get_neighbors(agent_id):
                 key = tuple(sorted([agent_id, neighbor_id]))
                 self.agreement_status[key] = False  # Initially, agents do not agree
+
+    def reset(self):
+        """
+        Resets the network state while preserving the graph structure.
+        1. Calls reset() on each agent
+        2. Resets agreement status
+        """
+        # Reset all agents
+        for agent in self.agents.values():
+            agent.reset()
+        
+        # Reset agreement status while keeping the same connections
+        self.agreement_status.clear()
+        self.init_agreements()
 
     def get_agent(self, agent_id):
         return self.agents[agent_id]
