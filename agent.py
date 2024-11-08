@@ -4,13 +4,34 @@ from langchain.chains import LLMChain
 from langchain_core.prompts import PromptTemplate
 from langchain.memory import ConversationBufferMemory
 from llm import get_llm
-from typing import Optional
+from typing import Optional, Dict, List, Set
 from langchain_core.output_parsers import StrOutputParser
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s [%(levelname)s] %(message)s',
                     filename='agent_log.log',
                     filemode='w')
+
+class Network:
+    def __init__(self):
+        self.agreements: Dict[str, Dict[str, bool]] = {}
+        self.neighbors: Dict[str, Set[str]] = {}
+    
+    def add_agent(self, agent_id: str) -> None:
+        if agent_id not in self.agreements:
+            self.agreements[agent_id] = {}
+            self.neighbors[agent_id] = set()
+    
+    def add_connection(self, agent1_id: str, agent2_id: str) -> None:
+        self.neighbors[agent1_id].add(agent2_id)
+        self.neighbors[agent2_id].add(agent1_id)
+    
+    def update_agreement(self, agent1_id: str, agent2_id: str, agrees: bool) -> None:
+        self.agreements[agent1_id][agent2_id] = agrees
+        self.agreements[agent2_id][agent1_id] = agrees
+    
+    def get_neighbors(self, agent_id: str) -> Set[str]:
+        return self.neighbors[agent_id]
 
 class Agent:
     def __init__(self, agent_id: str, capability: int):
@@ -25,7 +46,6 @@ class Agent:
 
         logging.info(f"Agent {self.agent_id} initialized with capability {self.capability}.")
 
-        # Initialize memory with proper return messages format
         self.memory = ConversationBufferMemory(
             memory_key="chat_history",
             input_key="human_input",
@@ -33,20 +53,25 @@ class Agent:
             return_messages=True
         )
 
-        # Base prompt template for solving problems
         self.solve_prompt = PromptTemplate(
             input_variables=["human_input", "chat_history", "capability"],
-            template="""
-You are a helpful assistant with math proficiency level {capability} out of 5.
+            template="""You are a math assistant with proficiency level {capability}/5. Your task is to solve the given problem efficiently and clearly.
+
 Previous conversation:
 {chat_history}
+
 Current problem:
 {human_input}
-Provide a clear, step-by-step solution with a final numerical answer.
-"""
+
+Instructions for response:
+1. Show only essential mathematical steps
+2. Skip explanatory text between steps
+3. Write each step in a single line
+4. End with a clear numerical answer prefixed with "Answer:"
+
+Focus on mathematical operations only. Do not include introductions, explanations, or conclusions."""
         )
 
-        # Initialize the base LLMChain
         self.llm_chain = LLMChain(
             llm=get_llm(self.capability),
             prompt=self.solve_prompt,
@@ -66,12 +91,9 @@ Provide a clear, step-by-step solution with a final numerical answer.
         return self.answer
 
     def debate(self, other_agent: 'Agent', problem: str, max_rounds_per_pair: int, network: 'Network') -> bool:
-        """
-        Debate with another agent. Returns True if consensus is reached, False otherwise.
-        """
+        """Debate with another agent. Returns True if consensus is reached, False otherwise."""
         logging.info(f"Agent {self.agent_id} starting debate with Agent {other_agent.agent_id}.")
 
-        # Early validation
         if not self.active or not other_agent.active:
             logging.warning("One or both agents are inactive. Debate cannot proceed.")
             return False
@@ -86,7 +108,6 @@ Provide a clear, step-by-step solution with a final numerical answer.
         while rounds < max_rounds_per_pair:
             logging.info(f"Debate round {rounds + 1} between Agent {self.agent_id} and Agent {other_agent.agent_id}.")
 
-            # Agent A generates a message to Agent B
             message_from_self = self.generate_message(
                 problem=problem,
                 other_agent_answer=other_agent.answer,
@@ -95,7 +116,6 @@ Provide a clear, step-by-step solution with a final numerical answer.
             logging.info(f"Agent {self.agent_id} to Agent {other_agent.agent_id}: {message_from_self}")
             conversation_history += f"\nAgent {self.agent_id}: {message_from_self}"
 
-            # Agent B processes the message and generates a reply
             message_from_other = other_agent.generate_reply(
                 problem=problem,
                 other_agent_answer=self.answer,
@@ -105,28 +125,22 @@ Provide a clear, step-by-step solution with a final numerical answer.
             logging.info(f"Agent {other_agent.agent_id} reply to Agent {self.agent_id}: {message_from_other}")
             conversation_history += f"\nAgent {other_agent.agent_id}: {message_from_other}"
 
-            # Both agents update their solutions based on the conversation
             self.update_solution(problem, conversation_history, proposer=other_agent, network=network)
             other_agent.update_solution(problem, conversation_history, proposer=self, network=network)
 
-            # Check if both agents agree on the solution
             solutions_match = self._compare_solutions(self.answer, other_agent.answer)
 
             if solutions_match:
                 logging.info(f"Agent {self.agent_id},{other_agent.agent_id} agree after {rounds + 1} rounds.")
-                # Update the agreement status
                 network.update_agreement(self.agent_id, other_agent.agent_id, True)
                 return True
             else:
-                # Agents disagree
                 network.update_agreement(self.agent_id, other_agent.agent_id, False)
 
-            # Update rounds and check limits
             rounds += 1
             self.total_debate_rounds += 1
             other_agent.total_debate_rounds += 1
 
-            # Check if agents should become inactive
             self.check_active()
             other_agent.check_active()
 
@@ -134,7 +148,6 @@ Provide a clear, step-by-step solution with a final numerical answer.
                 logging.info("One or both agents became inactive during debate.")
                 break
 
-        # If no consensus reached, higher capability agent's solution prevails
         if self.capability > other_agent.capability:
             other_agent.answer = self.answer
             logging.info(f"No consensus reached. Agent {self.agent_id} solution prevails due to higher capability.")
@@ -148,32 +161,33 @@ Provide a clear, step-by-step solution with a final numerical answer.
 
     def generate_reply(self, problem: str, other_agent_answer: str, message_from_other: str, 
                        conversation_history: str) -> str:
-        """
-        Generate a reply to another agent's message.
-        """
+        """Generate a reply to another agent's message."""
         reply_prompt = PromptTemplate(
             input_variables=["problem", "own_answer", "other_answer", "message", "history", "capability"],
-            template="""
-You are Agent {capability}/5 responding to another agent's mathematical analysis.
+            template="""You are a mathematical agent (Level {capability}/5) reviewing another agent's solution.
+
+Context:
 Problem: {problem}
 Your solution: {own_answer}
 Their solution: {other_answer}
 Their message: {message}
 Discussion history: {history}
 
-Compose a reply that:
-1. Addresses their specific points
-2. Provides mathematical justification
-3. Suggests corrections if needed
-4. Maintains focus on reaching the correct solution
+Instructions for your response:
+1. Point out mathematical errors only if present
+2. If you agree, state "Agree" and stop
+3. If you disagree:
+   - State the specific mathematical error
+   - Provide the correct calculation in one line
+   - No explanatory text or justification
+4. Keep response under 50 words
+5. Focus only on mathematical accuracy, ignore all other aspects
 
-Keep your response clear and focused on mathematical accuracy.
-"""
+Do not use polite phrases, greetings, or conclusions."""
         )
 
         reply_chain = reply_prompt | get_llm(self.capability) | StrOutputParser()
-
-        result = reply_chain.invoke({
+        return reply_chain.invoke({
             "problem": problem,
             "own_answer": self.answer,
             "other_answer": other_agent_answer,
@@ -182,86 +196,74 @@ Keep your response clear and focused on mathematical accuracy.
             "capability": self.capability
         })
 
-        return result
-
     def generate_message(self, problem: str, other_agent_answer: str, conversation_history: str) -> str:
         """Generates a message to another agent."""
         debate_prompt = PromptTemplate(
             input_variables=["problem", "own_answer", "other_answer", "history", "capability"],
-            template="""
-You are Agent {capability}/5 reviewing another agent's solution.
+            template="""You are a mathematical agent (Level {capability}/5) analyzing another solution.
+
+Context:
 Problem: {problem}
 Your solution: {own_answer}
 Their solution: {other_answer}
 Discussion history: {history}
-Analyze the mathematical correctness and provide specific feedback.
-"""
+
+Instructions for your response:
+1. Compare only the mathematical steps and results
+2. If solutions match, reply "Solutions mathematically equivalent" and stop
+3. If solutions differ:
+   - Point out the specific mathematical difference
+   - Show the correct calculation
+   - No explanations or justifications
+4. Maximum 3 lines of response
+5. Use mathematical notation where possible
+
+Do not include:
+- Introductions or greetings
+- General feedback or suggestions
+- Explanatory text
+- Conclusions or sign-offs"""
         )
 
         debate_chain = debate_prompt | get_llm(self.capability) | StrOutputParser()
-
-        result = debate_chain.invoke({
+        return debate_chain.invoke({
             "problem": problem,
             "own_answer": self.answer,
             "other_answer": other_agent_answer,
             "history": conversation_history,
             "capability": self.capability
         })
-        return result
-
-    def check_active(self) -> None:
-        """
-        Checks if the agent should remain active based on total debate rounds.
-        """
-        if self.total_debate_rounds >= self.max_total_rounds:
-            self.active = False
-            logging.info(f"Agent {self.agent_id} has become inactive after {self.total_debate_rounds} debate rounds.")
-
-    def reset(self) -> None:
-        """
-        Resets the agent's memory and state to initial conditions.
-        """
-        logging.info(f"Resetting Agent {self.agent_id}.")
-        self.memory.clear()             # Clears the conversation history
-        self.answer = None              # Resets the agent's answer
-        self.total_debate_rounds = 0    # Resets the debate rounds counter
-        self.active = True              # Reactivates the agent
-        self.confidence = 0.0           # Reset confidence score
-        self.reasoning = ""             # Reset reasoning
-
-        logging.info(f"Agent {self.agent_id} has been reset to initial state.")
 
     def update_solution(self, problem: str, conversation_history: str, proposer: 'Agent', network: 'Network') -> None:
-        """
-        Updates the agent's solution using mathematical equivalence to determine changes.
-        Sets solution_changed to true only when the new solution is mathematically different
-        from the current one.
-        """
+        """Updates the agent's solution based on the debate."""
         evaluation_prompt = PromptTemplate(
             input_variables=["problem", "current_answer", "history", "capability"],
-            template="""
-    You are Agent {capability}/5 reviewing a mathematical discussion.
-    Problem: {problem}
-    Your current answer: {current_answer}
-    Discussion history: {history}
+            template="""You are a mathematical agent (Level {capability}/5) reviewing solution updates.
 
-    Based on the mathematical discussion, evaluate if you need to update your answer.
-    Set solution_changed to true ONLY if the new solution is NOT mathematically equivalent 
-    to the current one (e.g., 0.5 is mathematically equivalent to 1/2 and 50%, so would 
-    NOT count as changed).
+Context:
+Problem: {problem}
+Current answer: {current_answer}
+Discussion history: {history}
 
-    YOU MUST ONLY Return your analysis in this JSON format, without anything else:
-    {{
-        "solution_changed": true/false,  # true only if new solution is mathematically different from current
-        "new_solution": "your numerical answer here if mathematically different, otherwise same as current",
-        "confidence": 0-100,
-        "reasoning": "explain why solutions are or aren't mathematically equivalent and any changes made"
-    }}
-    """
+Instructions:
+1. Compare mathematical equivalence only (e.g., 0.5 = 1/2 = 50% are equivalent)
+2. Assess if a new solution is mathematically different from current
+3. Return a JSON object with exactly these fields:
+   {
+       "solution_changed": boolean,  // true only if mathematically different
+       "new_solution": "numerical answer only",
+       "confidence": integer 0-100,
+       "reasoning": "one-line mathematical explanation"
+   }
+
+Requirements for the response:
+- No text outside the JSON object
+- Keep "reasoning" under 10 words
+- "new_solution" must be only numbers and mathematical operators
+- Do not include units or explanatory text in solutions"""
         )
 
         evaluation_chain = evaluation_prompt | get_llm(self.capability) | StrOutputParser()
-
         evaluation_result = evaluation_chain.invoke({
             "problem": problem,
             "current_answer": self.answer,
@@ -276,7 +278,6 @@ Analyze the mathematical correctness and provide specific feedback.
         new_solution = evaluation_data.get("new_solution", self.answer)
         
         if solution_changed:
-            # Update agent's solution and state
             self.answer = new_solution
             self.confidence = float(evaluation_data.get("confidence", 0))
             self.reasoning = evaluation_data.get("reasoning", "")
@@ -285,8 +286,7 @@ Analyze the mathematical correctness and provide specific feedback.
             logging.info(f"Update confidence: {self.confidence}")
             logging.info(f"Update reasoning: {self.reasoning}")
             
-            # Update network agreements
-            if(evaluation_data.get("solution_changed"), False):
+            if evaluation_data.get("solution_changed", False):
                 network.update_agreement(self.agent_id, proposer.agent_id, True)
                 neighbors = network.get_neighbors(self.agent_id)
                 for neighbor_id in neighbors:
@@ -297,11 +297,38 @@ Analyze the mathematical correctness and provide specific feedback.
             self.reasoning = evaluation_data.get("reasoning", "")
             logging.info(f"Reasoning: {self.reasoning}")
 
+    def check_active(self) -> None:
+        """Checks if the agent should remain active based on total debate rounds."""
+        if self.total_debate_rounds >= self.max_total_rounds:
+            self.active = False
+            logging.info(f"Agent {self.agent_id} has become inactive after {self.total_debate_rounds} debate rounds.")
+
+    def reset(self) -> None:
+        """Resets the agent's memory and state to initial conditions."""
+        logging.info(f"Resetting Agent {self.agent_id}.")
+        self.memory.clear()
+        self.answer = None
+        self.total_debate_rounds = 0
+        self.active = True
+        self.confidence = 0.0
+        self.reasoning = ""
+        logging.info(f"Agent {self.agent_id} has been reset to initial state.")
+
     def _compare_solutions(self, solution1: str, solution2: str) -> bool:
         """Compares solutions to check for equivalence."""
         compare_prompt = PromptTemplate(
             input_variables=["sol1", "sol2"],
-            template="Compare these solutions mathematically:\nSol1: {sol1}\nSol2: {sol2}\nAre they equivalent? Answer only 'Yes' or 'No'."
+            template="""You are comparing two mathematical solutions for equivalence.
+
+Solutions to compare:
+1: {sol1}
+2: {sol2}
+
+Instructions:
+1. Check only mathematical equivalence (e.g., 0.5 = 1/2 = 50%)
+2. Ignore formatting and notation differences
+3. Answer only 'Yes' or 'No'
+4. No other text or explanation allowed"""
         )
 
         compare_chain = LLMChain(
@@ -319,16 +346,20 @@ def assess_correctness(agent: Agent, correct_answer: str) -> bool:
     """Assesses correctness of the agent's solution."""
     assess_prompt = PromptTemplate(
         input_variables=["agent_answer", "correct_answer"],
-        template="""
-Evaluate if these answers are mathematically equivalent:
+        template="""You are verifying mathematical equivalence between two answers.
+
+Answers to compare:
 Agent's answer: {agent_answer}
 Correct answer: {correct_answer}
-Answer only 'Yes' or 'No'.
-"""
+
+Instructions:
+1. Check only mathematical value equivalence
+2. Ignore differences in format/notation/units
+3. Answer only 'Yes' or 'No'
+4. No explanation or additional text allowed"""
     )
 
     assess_chain = assess_prompt | get_llm(agent.capability) | StrOutputParser()
-
     result = assess_chain.invoke({
         "agent_answer": agent.answer,
         "correct_answer": correct_answer
