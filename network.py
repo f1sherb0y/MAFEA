@@ -2,11 +2,12 @@
 
 import networkx as nx
 from agent import Agent
+from typing import Dict
 
 class Network:
     def __init__(self, config):
-        self.graph = nx.Graph()
-        self.agents = {}
+        self.graph = nx.Graph() 
+        self.agents : Dict[str , Agent]= {}
         self.init_agents(config['nodes'])
         self.init_edges(config['edges'])
 
