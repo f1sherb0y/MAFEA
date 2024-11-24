@@ -12,20 +12,20 @@ class Network:
     def __init__(self):
         self.agreements: Dict[str, Dict[str, bool]] = {}
         self.neighbors: Dict[str, Set[str]] = {}
-    
+
     def add_agent(self, agent_id: str) -> None:
         if agent_id not in self.agreements:
             self.agreements[agent_id] = {}
             self.neighbors[agent_id] = set()
-    
+
     def add_connection(self, agent1_id: str, agent2_id: str) -> None:
         self.neighbors[agent1_id].add(agent2_id)
         self.neighbors[agent2_id].add(agent1_id)
-    
+
     def update_agreement(self, agent1_id: str, agent2_id: str, agrees: bool) -> None:
         self.agreements[agent1_id][agent2_id] = agrees
         self.agreements[agent2_id][agent1_id] = agrees
-    
+
     def get_neighbors(self, agent_id: str) -> Set[str]:
         return self.neighbors[agent_id]
 
@@ -80,15 +80,15 @@ Focus on mathematical operations only. Do not include introductions, explanation
         result = self.llm_chain.invoke({
             "human_input": problem,
             "capability": self.capability
-        })
-        
+        },verbose=False)
+
         self.answer = result["ai_output"]
         logging.info(f"Agent {self.agent_id} solution: {self.answer}")
         return self.answer
 
     def debate(self, other_agent: 'Agent', problem: str, max_rounds_per_pair: int, network: 'Network') -> bool:
         """Debate with another agent. Returns True if consensus is reached, False otherwise."""
-        logging.info(f"Agent {self.agent_id} starting debate with Agent {other_agent.agent_id}.")
+        logging.info(f"Agent {self.agent_id} <===== debate =====> {other_agent.agent_id}.")
 
         if not self.active or not other_agent.active:
             logging.warning("One or both agents are inactive. Debate cannot proceed.")
@@ -155,7 +155,7 @@ Focus on mathematical operations only. Do not include introductions, explanation
 
         return False
 
-    def generate_reply(self, problem: str, other_agent_answer: str, message_from_other: str, 
+    def generate_reply(self, problem: str, other_agent_answer: str, message_from_other: str,
                        conversation_history: str) -> str:
         """Generate a reply to another agent's message."""
         reply_prompt = PromptTemplate(
@@ -190,7 +190,7 @@ Do not use polite phrases, greetings, or conclusions."""
             "message": message_from_other,
             "history": conversation_history,
             "capability": self.capability
-        })
+        }, verbose=False)
 
     def generate_message(self, problem: str, other_agent_answer: str, conversation_history: str) -> str:
         """Generates a message to another agent."""
@@ -211,8 +211,7 @@ Instructions for your response:
    - Point out the specific mathematical difference
    - Show the correct calculation
    - No explanations or justifications
-4. Maximum 3 lines of response
-5. Use mathematical notation where possible
+4. Use mathematical notation where possible
 
 Do not include:
 - Introductions or greetings
@@ -228,7 +227,7 @@ Do not include:
             "other_answer": other_agent_answer,
             "history": conversation_history,
             "capability": self.capability
-        })
+        },verbose=False)
 
     def update_solution(self, problem: str, conversation_history: str, proposer: 'Agent', network: 'Network') -> None:
         """Updates the agent's solution based on the debate."""
@@ -265,23 +264,23 @@ Requirements for the response:
             "current_answer": self.answer,
             "history": conversation_history,
             "capability": self.capability
-        })
+        },verbose=False)
 
         logging.info(f"Agent {self.agent_id} evaluation response: {evaluation_result}")
-        
+
         evaluation_data = json.loads(evaluation_result)
         solution_changed = evaluation_data.get("solution_changed", False)
         new_solution = evaluation_data.get("new_solution", self.answer)
-        
+
         if solution_changed:
             self.answer = new_solution
             self.confidence = float(evaluation_data.get("confidence", 0))
             self.reasoning = evaluation_data.get("reasoning", "")
-            
+
             logging.info(f"Solution updated - Agent {self.agent_id}: {self.answer}")
             logging.info(f"Update confidence: {self.confidence}")
             logging.info(f"Update reasoning: {self.reasoning}")
-            
+
             if evaluation_data.get("solution_changed", False):
                 network.update_agreement(self.agent_id, proposer.agent_id, True)
                 neighbors = network.get_neighbors(self.agent_id)
@@ -335,7 +334,7 @@ Instructions:
         result = compare_chain.invoke({
             "sol1": solution1,
             "sol2": solution2
-        })
+        },verbose=False)
         return "yes" in result["text"].lower()
 
 def assess_correctness(agent: Agent, correct_answer: str) -> bool:
@@ -359,5 +358,5 @@ Instructions:
     result = assess_chain.invoke({
         "agent_answer": agent.answer,
         "correct_answer": correct_answer
-    })
+    },verbose=False)
     return "yes" in result.lower()

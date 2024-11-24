@@ -21,18 +21,18 @@ class LLMConfig(BaseModel):
 def get_llm_config(capability_level: CapabilityLevel) -> LLMConfig:
     """
     Get the LLM configuration based on capability level.
-    
+
     Args:
         capability_level (CapabilityLevel): The desired capability level
-        
+
     Returns:
         LLMConfig: Configuration for the LLM
     """
     base_config = {
-        "api_base": "https://api.bianxie.ai/v1",
-        "api_key": "sk-Mc0h6rJZ1dvmnZiRD3B8F117B65d437c8a1a38D6E26c8585"
+        "api_base": os.environ.get("OPENAI_API_BASE", ""),
+        "api_key": os.environ.get("OPENAI_API_KEY", "")
     }
-    
+
     # model_configs = {
     #     CapabilityLevel.ADVANCED: ("o1-preview", 1),
     #     CapabilityLevel.HIGH: ("o1-mini", 1),
@@ -50,7 +50,7 @@ def get_llm_config(capability_level: CapabilityLevel) -> LLMConfig:
         CapabilityLevel.LOW: ("gpt-3.5-turbo", 0.7),
         CapabilityLevel.BASIC: ("gpt-3.5-turbo", 0.7)
     }
-    
+
     model_name, temperature = model_configs[capability_level]
     return LLMConfig(
         api_base=base_config["api_base"],
@@ -62,13 +62,13 @@ def get_llm_config(capability_level: CapabilityLevel) -> LLMConfig:
 def get_llm(capability_level: int) -> ChatOpenAI:
     """
     Returns an LLM instance configured to use a custom OpenAI-style endpoint.
-    
+
     Args:
         capability_level (int): Integer representing the desired capability level (0-5)
-        
+
     Returns:
         ChatOpenAI: Configured LLM instance
-        
+
     Raises:
         ValueError: If capability_level is not in range 0-5
     """
@@ -76,9 +76,9 @@ def get_llm(capability_level: int) -> ChatOpenAI:
         level = CapabilityLevel(capability_level)
     except ValueError:
         raise ValueError(f"Capability level must be between {CapabilityLevel.BASIC} and {CapabilityLevel.ADVANCED}")
-    
+
     config = get_llm_config(level)
-    
+
     return ChatOpenAI(
         openai_api_base=config.api_base,
         openai_api_key=config.api_key,

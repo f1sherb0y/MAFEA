@@ -6,11 +6,16 @@ import config
 from dataset_loader import load_gsm8k_dataset
 from agent import assess_correctness
 import logging
+import urllib3
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s [%(levelname)s] %(message)s',
-                    filename='agent_log.log',
-                    filemode='w')
+                    # filename='agent_log.log',
+                    # filemode='w'
+                    )
+urllib3.disable_warnings()
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("requests").setLevel(logging.WARNING)
 
 
 def main():
